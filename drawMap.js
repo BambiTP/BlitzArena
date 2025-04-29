@@ -17,9 +17,9 @@ const floorTiles = {
   16: { hex: "007500", y: 3, x: 13, texture: "tile", drawBackground: false }, // green gate
   17: { hex: "007500", y: 3, x: 14, texture: "tile", drawBackground: false }, // red gate
   18: { hex: "007500", y: 3, x: 15, texture: "tile", drawBackground: false }, // blue gate
-  19: { hex: "ff8080", y: 8, x: 14, texture: "tile", drawBackground: true }, // red potato
+  19: { hex: "ff8080", y: 7, x: 14, texture: "tile", drawBackground: true }, // red potato
   20: { hex: "656500", y: 6, x: 14, texture: "tile", drawBackground: true }, // yellow potato
-  21: { hex: "0066cc", y: 8, x: 14, texture: "tile", drawBackground: true }, // blue potato
+  21: { hex: "8080ff", y: 8, x: 14, texture: "tile", drawBackground: true }, // blue potato
   22: { hex: "ffff00", y: 0, x: 0, texture: "speedpad", drawBackground: true }, // yellow boost
   23: { hex: "ff7373", y: 0, x: 0, texture: "speedpadred", drawBackground: true }, // red boost
   24: { hex: "7373ff", y: 0, x: 0, texture: "speedpadblue", drawBackground: true }, // blue boost
@@ -371,45 +371,124 @@ async function drawMap(mapSrc, ctx, tileSize, quadSize) {
     return wallTypes[id].wallSolids;
   }
 
-  function drawWallTile(col, row) {
-    const id = wallMap[row][col]; if (!id) return;
-    const solids = wallTypes[id].wallSolids;
-    for (let q = 0; q < 4; q++) {
-      const mask = (solids >> (q << 1)) & 3; if (!mask) continue;
-      let cx = col + ((q & 2) ? 0 : 1);
-      let cy = row + (((q + 1) & 2) ? 1 : 0);
-      let around =
-        (wallSolidsAt(cx,   cy  ) & 0xc0) |
-        (wallSolidsAt(cx-1, cy  ) & 0x03) |
-        (wallSolidsAt(cx-1, cy-1) & 0x0c) |
-        (wallSolidsAt(cx,   cy-1) & 0x30);
-      around |= (around << 8);
+function drawWallTile(col, row) {
+  const id = wallMap[row][col];
+  if (!id) return;
 
-      const startDir = q * 2 + 1;
-      let cw = 0, ccw = 0;
-      while (cw < 8 && (around & (1 << (startDir + cw)))) cw++;
-      while (ccw < 8 && (around & (1 << (startDir + 7 - ccw)))) ccw++;
-      const hasChip = mask === 3 && (((solids | (solids << 8)) >> ((q+2) << 1)) & 3) === 0;
-      let start, end;
-      if (cw === 8) { start = end = 0; }
-      else {
-        end   = (startDir + cw + 4) % 8;
-        start = (startDir - ccw + 12) % 8;
-      }
-      const key = `${q}${start}${end}${hasChip ? "d" : ""}`;
-      const [rx, ry] = quadrantCoords[key] || [5.5, 5.5];
-      const sx = rx * tileSize, sy = ry * tileSize;
-      let dx = col * tileSize, dy = row * tileSize;
-      if (q === 0) dx += quadSize;
-      else if (q === 1) { dx += quadSize; dy += quadSize; }
-      else if (q === 2) dy += quadSize;
-      ctx.drawImage(
-        imageElements.tile,
-        sx, sy, quadSize, quadSize,
-        dx, dy, quadSize, quadSize
-      );
-    }
+  // helper to say “non‐zero” in *either* map, or false if OOB
+  function hasContent(r, c) {
+    if (
+      r < 0 || c < 0 ||
+      r >= tileMap.length ||
+      c >= tileMap[0].length
+    ) return false;
+    return tileMap[r][c] !== 0 || wallMap[r][c] !== 0;
   }
+
+  const dx = col * tileSize;
+  const dy = row * tileSize;
+  const bg = floorTiles[1]; // your plain‐floor
+
+  // draw 45°‐corner background when BOTH orthogonals have *any* tile/wall
+  if (id === 1.1 && hasContent(row - 1, col) && hasContent(row, col - 1)) {
+    ctx.drawImage(
+      imageElements[bg.texture],
+      bg.x * tileSize, bg.y * tileSize,
+      tileSize, tileSize,
+      dx, dy,
+      tileSize, tileSize
+    );
+  }
+  else if (
+    id === 1.2 &&
+    hasContent(row + 1, col) &&
+    hasContent(row, col + 1)
+  ) {
+    ctx.drawImage(
+      imageElements[bg.texture],
+      bg.x * tileSize, bg.y * tileSize,
+      tileSize, tileSize,
+      dx, dy,
+      tileSize, tileSize
+    );
+  }
+  else if (
+    id === 1.3 &&
+    hasContent(row + 1, col) &&
+    hasContent(row, col - 1)
+  ) {
+    ctx.drawImage(
+      imageElements[bg.texture],
+      bg.x * tileSize, bg.y * tileSize,
+      tileSize, tileSize,
+      dx, dy,
+      tileSize, tileSize
+    );
+  }
+  else if (
+    id === 1.4 &&
+    hasContent(row - 1, col) &&
+    hasContent(row, col + 1)
+  ) {
+    ctx.drawImage(
+      imageElements[bg.texture],
+      bg.x * tileSize, bg.y * tileSize,
+      tileSize, tileSize,
+      dx, dy,
+      tileSize, tileSize
+    );
+  }
+
+  // — now draw your wall quadrants exactly as before —
+  const solids = wallTypes[id].wallSolids;
+  for (let q = 0; q < 4; q++) {
+    const mask = (solids >> (q << 1)) & 3;
+    if (!mask) continue;
+
+    // build the 8-neighborhood mask...
+    let cx = col + ((q & 2) ? 0 : 1);
+    let cy = row + (((q + 1) & 2) ? 1 : 0);
+    let around =
+      (wallSolidsAt(cx,   cy  ) & 0xc0) |
+      (wallSolidsAt(cx-1, cy  ) & 0x03) |
+      (wallSolidsAt(cx-1, cy-1) & 0x0c) |
+      (wallSolidsAt(cx,   cy-1) & 0x30);
+    around |= (around << 8);
+
+    const startDir = q * 2 + 1;
+    let cw = 0, ccw = 0;
+    while (cw < 8 && (around & (1 << (startDir + cw)))) cw++;
+    while (ccw < 8 && (around & (1 << (startDir + 7 - ccw)))) ccw++;
+
+    const hasChip =
+      mask === 3 &&
+      (((solids | (solids << 8)) >> ((q + 2) << 1)) & 3) === 0;
+
+    let start, end;
+    if (cw === 8) { start = end = 0; }
+    else {
+      end   = (startDir + cw + 4) % 8;
+      start = (startDir - ccw + 12) % 8;
+    }
+
+    const key = `${q}${start}${end}${hasChip ? "d" : ""}`;
+    const [rx, ry] = quadrantCoords[key] || [5.5, 5.5];
+
+    let qdx = dx, qdy = dy;
+    if (q === 0)           qdx += quadSize;
+    else if (q === 1) { qdx += quadSize; qdy += quadSize; }
+    else if (q === 2)      qdy += quadSize;
+
+    ctx.drawImage(
+      imageElements.tile,
+      rx * tileSize, ry * tileSize,
+      quadSize, quadSize,
+      qdx, qdy,
+      quadSize, quadSize
+    );
+  }
+}
+
 
   for (let ry = 0; ry < h; ry++) {
     for (let cx = 0; cx < w; cx++) {
