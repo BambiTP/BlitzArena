@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>TagPro Map with Ball (Accumulator Physics)</title>
+  <style>
+    body, html { margin: 0; padding: 0; overflow: hidden; }
+    #gameContainer { position: relative; width: 800px; height: 600px; margin: auto; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="gameContainer">
+    <!-- Map Canvas: Z-index 0 -->
+    <canvas id="mapCanvas" width="800" height="600"
+            style="position:absolute; top:0; left:0; z-index:0;"></canvas>
+  </div>
+
+  <!-- Libraries -->
+  <script src="pixi.min.js"></script>
+  <script src="Box2d.min.js"></script>
+
+  <!-- Draw map into mapCanvas -->
+  <script src="drawMap.js"></script>
+
+  <!-- Game Logic -->
+  <script>
+    // — CONFIGURATION —
+    const config = {
+      pixPerTPU: 100,
+      physicsHz: 60,
+      ac: 0.025,
+      maxSpeed: 2.5
+    };
+    const dt = 1 / config.physicsHz; // 1/60s per physics tick
+
+    // — SET UP PIXI & BOX2D —
+    const app = new PIXI.Application({
+      width: 800, height: 600,
+      transparent: true,
+      resolution: window.devicePixelRatio || 1,
+      autoDensity: true
+    });
+    app.view.style.position = 'absolute';
+    app.view.style.top = '0';
+    app.view.style.left = '0';
+    app.view.style.zIndex = '1';
+    document.getElementById('gameContainer').appendChild(app.view);
+
+    const world = new Box2D.Dynamics.b2World(
+      new Box2D.Common.Math.b2Vec2(0, 0), true
+    );
+
+    // — LOAD BALL TEXTURE —
+    const baseTexture = PIXI.BaseTexture.from('tiles.png');
+    const ballTex = new PIXI.Texture(
+      baseTexture,
+      new PIXI.Rectangle(560, 0, 40, 40)
+    );
+
+    // — SPAWN CONTROLLABLE BALL —
+    function spawnBall(x, y) {
+      const bd = new Box2D.Dynamics.b2BodyDef();
+      bd.type = Box2D.Dynamics.b2Body.b2_dynamicBody;
+      bd.bullet = true;
+      bd.position.Set(x, y);
+      bd.linearDamping = 0.5;
+      bd.angularDamping = 0.5;
+
+      const body = world.CreateBody(bd);
+      const fd = new Box2D.Dynamics.b2FixtureDef();
+      fd.shape = new Box2D.Collision.Shapes.b2CircleShape(0.19);
+      fd.density = 1;
+      fd.friction = 0.5;
+      fd.restitution = 0.2;
+      body.CreateFixture(fd);
+      body.ResetMassData();
+
+      const sprite = new PIXI.Sprite(ballTex);
+      const diameterPx = 2 * 0.19 * config.pixPerTPU;
+      sprite.width = diameterPx;
+      sprite.height = diameterPx;
+      sprite.anchor.set(0.5);
+      sprite.x = x * config.pixPerTPU;
+      sprite.y = y * config.pixPerTPU;
+      app.stage.addChild(sprite);
+
+      body.SetUserData({ sprite });
+      return body;
+    }
+
+    const ball = spawnBall(2, 2);
+
+    // — INPUT HANDLING —
+    const keys = {};
+    window.addEventListener('keydown', e => keys[e.key] = true);
+    window.addEventListener('keyup',   e => keys[e.key] = false);
+
+    // — PHYSICS + RENDER LOOP (Accumulator Pattern) —
+    let accumulator = 0;
+    app.ticker.add((delta) => {
+      // deltaMS is time since last frame in ms
+      const frameTime = Math.min(app.ticker.deltaMS / 1000, 0.1);
+      accumulator += frameTime;
+
+      // Step physics in fixed dt increments
+      while (accumulator >= dt) {
+        // — apply player input acceleration —
+        const vel = ball.GetLinearVelocity().Copy();
+        if (keys.ArrowLeft || keys.a)   vel.x -= config.ac;
+        if (keys.ArrowRight || keys.d)  vel.x += config.ac;
+        if (keys.ArrowUp || keys.w)     vel.y -= config.ac;
+        if (keys.ArrowDown || keys.s)   vel.y += config.ac;
+
+        // clamp to max speed
+        vel.x = Math.max(-config.maxSpeed, Math.min(config.maxSpeed, vel.x));
+        vel.y = Math.max(-config.maxSpeed, Math.min(config.maxSpeed, vel.y));
+        ball.SetLinearVelocity(vel);
+        ball.SetAwake(true);
+
+        // — step Box2D —
+        world.Step(dt, 8, 3);
+        world.ClearForces();
+
+        accumulator -= dt;
+      }
+
+      // — render sprite to match physics body —
+      const pos = ball.GetPosition();
+      const ud  = ball.GetUserData();
+      ud.sprite.x = pos.x * config.pixPerTPU;
+      ud.sprite.y = pos.y * config.pixPerTPU;
+      ud.sprite.rotation = ball.GetAngle();
+    });
+  </script>
+</body>
+</html>
